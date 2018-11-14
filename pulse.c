@@ -26,27 +26,23 @@ int main(int argc, char *argv[])
 //    gpioServo(4, 1500);
 
     /* Start 75% dutycycle PWM on GPIO17 */
-    gpioPWM(17, 192); /* 192/255 = 75% */
+//    gpioPWM(17, 192); /* 192/255 = 75% */
 
     start = time_time();
-    int v = 255-14;
+    int v = 255;
+    int dir = -1;
     while ((time_time() - start) < 60.0)
     {
-        //gpioWrite(18, 1); /* on */
-
-        time_sleep(0.5);
-
-       // gpioWrite(17, v); /* off */
        printf("current v:%d\n",v);
-        gpioPWM(17, v); /* 192/255 = 75% */
+       gpioPWM(17, v); /* 192/255 = 75% */
+       time_sleep(0.005);
+       if(0 == v){
+        dir = 1;
+       }else if(255 == v){
+        dir = -1;
+       }
+       v+=dir;
 
-        v-=15;
-        if(v <=0)v=255-14;
-
-        //time_sleep(0.5);
-
-        /* Mirror GPIO24 from GPIO23 */
-       // gpioWrite(24, gpioRead(23));
     }
 
     /* Stop DMA, release resources */
