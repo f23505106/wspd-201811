@@ -8,26 +8,28 @@ extern pthread_cond_t  MainCond;
 
 //pinmap
 //left
-#define LC   5
-#define AIN1 6
-#define AIN2 13
-#define PWML 19
+#define LC  0// 5
+#define AIN1 1//6
+#define AIN2 4//13
+#define PWML 17//19
 
 //right
-#define RC   26
-#define BIN1 16
-#define BIN2 20
-#define PWMR 21
+#define RC   11//26
+#define BIN1 14//16
+#define BIN2 15//20
+#define PWMR 18//21
 
 #define TURN_90_COUNT 100
 #define TURN_180_COUNT 200
 
 #define CHECK_TIME (100000) //tick is microseconds 0.1s 
+#define DEBOUNC_TIME 1000
 static uint32_t LastTick = -1;
 
 static uint32_t LeftCount = 0;
 static uint32_t RightCount = 0;
-
+static uint8_t LeftPwm;
+static uint8_t RightPwm;
 uint8_t PwmMin = 20;
 
 enum WHICH{LEFT=0,RIGHT};
@@ -67,25 +69,26 @@ uint8_t diff2pwm(int diff){
 void updatePwm(enum WHICH w,int diff){
     if(LEFT == w){
         if(diff < 0){
+            printf("left over need go back\n");
             Ldir = ! LTartgetDir;
             leftDir(Ldir);
             diff = -diff;
         }
-        int pwm = gpioGetPWMdutycycle(PWML);
-        pwm = pwm < diff2pwm(diff)?(++pwm):(--pwm);//todo adjust
-        gpioPWM(PWML,pwm);
+        LeftPwm = LeftPwm < diff2pwm(diff)?(++LeftPwm):(--LeftPwm);//todo adjust
+        gpioPWM(PWML,LeftPwm);
     }else if(RIGHT == w){
         if(diff < 0){
+            printf("right over need go back\n");
             Rdir = ! RTartgetDir;
             rightDir(Rdir);
             diff = -diff;
         }
-        int pwm = gpioGetPWMdutycycle(PWMR);
-        pwm = pwm < diff2pwm(diff)?(++pwm):(--pwm);//todo adjust
-        gpioPWM(PWMR,pwm);
+        RightPwm = RightPwm < diff2pwm(diff)?(++RightPwm):(--RightPwm);//todo adjust
+        gpioPWM(PWMR,RightPwm);
     }else{
         printf("updatePwm error\n");
     }
+    printf("LTagetDistance:%d LeftCount:%d lpwm:%d RTagetDistance:%d RightCount:%d rpwm:%d\n",LTagetDistance,LeftCount,LeftPwm,RTagetDistance,RightCount,RightPwm);
 }
 void updateSpeed(){
     int ldiff = LTagetDistance - LeftCount;
@@ -95,8 +98,16 @@ void updateSpeed(){
         wakeMainThread();
         return;
     }
-    updatePwm(LEFT,ldiff);
-    updatePwm(RIGHT,rdiff);
+    if(ldiff == 0){
+        printf("left arrived\n");
+    }else{
+        updatePwm(LEFT,ldiff);
+    }
+    if(rdiff == 0){
+        printf("right arrived\n");
+    }else{
+        updatePwm(RIGHT,rdiff);
+    }
 }
 /*
 Parameter   Value    Meaning
@@ -117,50 +128,66 @@ void edges(int gpio, int level, uint32_t tick) {
             printf("timeout arrived\n");
             wakeMainThread();
         }else{
-            uint8_t left = gpioGetPWMdutycycle(PWML);
-            uint8_t right = gpioGetPWMdutycycle(PWMR);
-            printf("gpio:%d timeout left pwm:%d right pwm:%d min pwm %d\n",gpio,left,right,PwmMin);
+            printf("gpio:%d timeout left pwm:%d right pwm:%d min pwm %d\n",gpio,LeftPwm,RightPwm,PwmMin);
             ++PwmMin;
-            gpioPWM(PWML,PwmMin);
-            gpioPWM(PWMR,PwmMin);
+            if(LC == gpio){
+                if(LTagetDistance > LeftCount){
+                    gpioPWM(PWML,++LeftPwm);
+                }else if(LTagetDistance < LeftCount){
+                    gpioPWM(PWML,--LeftPwm);
+                }
+            }
+            if(RC == gpio){
+                if(RTagetDistance > RightCount){
+                    gpioPWM(PWMR,++RightPwm);
+                }else if(RTagetDistance < RightCount){
+                    gpioPWM(PWMR,--RightPwm);
+                }
+            }
         }
         return;
     }
-    if(LC == gpio){
-        LeftCount += (Ldir == LTartgetDir ? 1:-1);;
-    }else if(RC == gpio){
-        RightCount += (Rdir == RTartgetDir ? 1:-1);;
-    }else{
-        //maybe other funs
-        return;
-    }
-    if(tick - LastTick >= CHECK_TIME){
-        updateSpeed();
-        LastTick = tick;
+    if(0 ==level){//falling edge
+        if(LC == gpio){
+            LeftCount += (Ldir == LTartgetDir ? 1:-1);;
+        }else if(RC == gpio){
+            RightCount += (Rdir == RTartgetDir ? 1:-1);;
+        }else{
+            //maybe other funs
+            return;
+        }
+        if(tick - LastTick >= CHECK_TIME){
+            updateSpeed();
+            LastTick = tick;
+        }
     }
 }
 void initOnce(){
     if(InitOnceFlag){
         return;
     }
+    printf("init once\n");
     InitOnceFlag = 1;
     gpioSetMode(LC, PI_INPUT);
     gpioSetPullUpDown(LC, PI_PUD_UP);
+    gpioGlitchFilter(LC,DEBOUNC_TIME);
     gpioSetAlertFunc(LC, edges);
     gpioSetMode(AIN1, PI_OUTPUT);
     gpioSetMode(AIN2, PI_OUTPUT);
     gpioSetMode(PWML, PI_OUTPUT);
-    gpioSetWatchdog(LC, CHECK_TIME<<0x3);
+    gpioSetWatchdog(LC, CHECK_TIME>>0x3);
 
     gpioSetMode(RC, PI_INPUT);
     gpioSetPullUpDown(RC, PI_PUD_UP);
+    gpioGlitchFilter(RC,DEBOUNC_TIME);
     gpioSetAlertFunc(RC, edges);
     gpioSetMode(BIN1, PI_OUTPUT);
     gpioSetMode(BIN2, PI_OUTPUT);
     gpioSetMode(PWMR, PI_OUTPUT);
-    gpioSetWatchdog(RC, CHECK_TIME<<0x3);
+    gpioSetWatchdog(RC, CHECK_TIME>>0x3);
 }
 void init(int64_t lDistance,int64_t rDistance){
+    printf("init ldis:%d,rdis:%d\n",lDistance,rDistance);
     if(lDistance < 0){
         LTagetDistance = -lDistance;
         Ldir = LTartgetDir = BW;
@@ -172,7 +199,7 @@ void init(int64_t lDistance,int64_t rDistance){
         RTagetDistance = -rDistance;
         Rdir = RTartgetDir = BW;
     }else{
-        RTagetDistance = -rDistance;
+        RTagetDistance = rDistance;
         Rdir = RTartgetDir = FW;
     }
     leftDir(Ldir);
@@ -182,20 +209,24 @@ void init(int64_t lDistance,int64_t rDistance){
 
     LeftCount = 0;
     RightCount = 0;
+    LeftPwm = PwmMin;
+    RightPwm = PwmMin;
     initOnce();
     //start to move
+    printf("start to move\n");
     gpioPWM(PWML,PwmMin);
     gpioPWM(PWMR,PwmMin);
 
 }
-void moveStraight(int64_t distance){
-    printf("move straight %d",distance);
+int moveStraight(int64_t distance){
+    printf("move straight %d\n",distance);
     if(0 == distance){
-        printf("distance is 0,just return");
+        printf("distance is 0,just return\n");
         wakeMainThread();
-        return;
+        return -1;
     }
-    init(distance,distance);
+    init(0,distance);
+    return 0;
 }
 
 void turnLeft(){
