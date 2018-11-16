@@ -14,7 +14,7 @@ extern pthread_cond_t  MainCond;
 #define PWML 19
 
 //right
-#define RC   25
+#define RC   26
 #define BIN1 16
 #define BIN2 20
 #define PWMR 21
@@ -22,7 +22,7 @@ extern pthread_cond_t  MainCond;
 #define TURN_90_COUNT 100
 #define TURN_180_COUNT 200
 
-#define CHECK_TIME (1e5) //tick is microseconds 0.1s 
+#define CHECK_TIME (100000) //tick is microseconds 0.1s 
 static uint32_t LastTick = -1;
 
 static uint32_t LeftCount = 0;
@@ -34,57 +34,28 @@ enum WHICH{LEFT=0,RIGHT};
 
 enum DIR{FW=0,BW};
 
-static DIR LTartgetDir;
-static DIR RTartgetDir;
+static enum DIR LTartgetDir;
+static enum DIR RTartgetDir;
 static uint32_t LTagetDistance;
 static uint32_t RTagetDistance;
 
-static DIR Ldir;
-static DIR Rdir;
-void init(int64_t lDistance,int64_t rDistance){
-    if(lDistance < 0){
-        LTagetDistance = -lDistance;
-        Ldir = LTartgetDir = BW;
-    }else{
-        LTagetDistance = lDistance;
-        Ldir = LTartgetDir = FW;
-    }
-    if(rDistance < 0){
-        RTagetDistance = -rDistance;
-        Rdir = RTartgetDir = BW;
-    }else{
-        RTagetDistance = -rDistance;
-        Rdir = RTartgetDir = FW;
-    }
-    leftDir(Ldir);
-    rightDir(Rdir);
-
-    LastTick = -1;
-
-    LeftCount = 0;
-    RightCount = 0;
-
-    gpioSetMode(LC, PI_INPUT);
-    gpioSetPullUpDown(LC, PI_PUD_UP);
-    gpioSetAlertFunc(LC, edges);
-    gpioSetMode(AIN1, PI_OUTPUT);
-    gpioSetMode(AIN2, PI_OUTPUT);
-    gpioSetMode(PWML, PI_OUTPUT);
-    gpioSetWatchdog(4, CHECK_TIME<<0x3);
-    //start to move
-    gpioPWM(PWML,PwmMin);
-    gpioPWM(PWMR,PwmMin);
-
+static enum DIR Ldir;
+static enum DIR Rdir;
+static int InitOnceFlag = 0;
+void wakeMainThread(){
+    pthread_mutex_lock( &MainMutex );
+    pthread_cond_signal( &MainCond );
+    pthread_mutex_unlock( &MainMutex );
 }
-inline uint8_t  clamp(int n) {
+uint8_t  clamp(int n) {
     n = n > 255 ? 255 : n;
     return n< PwmMin ? PwmMin : n;
 }
-inline void leftDir(DIR dir){
+void leftDir(enum DIR dir){
     gpioWrite(AIN1, dir);
     gpioWrite(AIN2, !dir);
 }
-inline void rightDir(DIR dir){
+void rightDir(enum DIR dir){
     gpioWrite(BIN1, dir);
     gpioWrite(BIN2, !dir);
 }
@@ -93,7 +64,7 @@ uint8_t diff2pwm(int diff){
     diff>>=0x1;//todo adjust
     return clamp(diff);
 }
-void updatePwm(WHICH w,int diff){
+void updatePwm(enum WHICH w,int diff){
     if(LEFT == w){
         if(diff < 0){
             Ldir = ! LTartgetDir;
@@ -106,7 +77,7 @@ void updatePwm(WHICH w,int diff){
     }else if(RIGHT == w){
         if(diff < 0){
             Rdir = ! RTartgetDir;
-            ReftDir(Rdir);
+            rightDir(Rdir);
             diff = -diff;
         }
         int pwm = gpioGetPWMdutycycle(PWMR);
@@ -118,7 +89,7 @@ void updatePwm(WHICH w,int diff){
 }
 void updateSpeed(){
     int ldiff = LTagetDistance - LeftCount;
-    int rdiff = RTagetDistance - ReftCount;
+    int rdiff = RTagetDistance - RightCount;
     if(0 == ldiff && 0 == rdiff){
         printf("arrive postion\n");
         wakeMainThread();
@@ -151,7 +122,7 @@ void edges(int gpio, int level, uint32_t tick) {
             printf("gpio:%d timeout left pwm:%d right pwm:%d min pwm %d\n",gpio,left,right,PwmMin);
             ++PwmMin;
             gpioPWM(PWML,PwmMin);
-            pioPWM(PWMR,PwmMin);
+            gpioPWM(PWMR,PwmMin);
         }
         return;
     }
@@ -168,12 +139,57 @@ void edges(int gpio, int level, uint32_t tick) {
         LastTick = tick;
     }
 }
-void wakeMainThread(){
-    pthread_mutex_lock( &MainMutex );
-    pthread_cond_signal( &MainCond );
-    pthread_mutex_unlock( &MainMutex );
+void initOnce(){
+    if(InitOnceFlag){
+        return;
+    }
+    InitOnceFlag = 1;
+    gpioSetMode(LC, PI_INPUT);
+    gpioSetPullUpDown(LC, PI_PUD_UP);
+    gpioSetAlertFunc(LC, edges);
+    gpioSetMode(AIN1, PI_OUTPUT);
+    gpioSetMode(AIN2, PI_OUTPUT);
+    gpioSetMode(PWML, PI_OUTPUT);
+    gpioSetWatchdog(LC, CHECK_TIME<<0x3);
+
+    gpioSetMode(RC, PI_INPUT);
+    gpioSetPullUpDown(RC, PI_PUD_UP);
+    gpioSetAlertFunc(RC, edges);
+    gpioSetMode(BIN1, PI_OUTPUT);
+    gpioSetMode(BIN2, PI_OUTPUT);
+    gpioSetMode(PWMR, PI_OUTPUT);
+    gpioSetWatchdog(RC, CHECK_TIME<<0x3);
+}
+void init(int64_t lDistance,int64_t rDistance){
+    if(lDistance < 0){
+        LTagetDistance = -lDistance;
+        Ldir = LTartgetDir = BW;
+    }else{
+        LTagetDistance = lDistance;
+        Ldir = LTartgetDir = FW;
+    }
+    if(rDistance < 0){
+        RTagetDistance = -rDistance;
+        Rdir = RTartgetDir = BW;
+    }else{
+        RTagetDistance = -rDistance;
+        Rdir = RTartgetDir = FW;
+    }
+    leftDir(Ldir);
+    rightDir(Rdir);
+
+    LastTick = -1;
+
+    LeftCount = 0;
+    RightCount = 0;
+    initOnce();
+    //start to move
+    gpioPWM(PWML,PwmMin);
+    gpioPWM(PWMR,PwmMin);
+
 }
 void moveStraight(int64_t distance){
+    printf("move straight %d",distance);
     if(0 == distance){
         printf("distance is 0,just return");
         wakeMainThread();
