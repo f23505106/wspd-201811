@@ -8,16 +8,16 @@ extern pthread_cond_t  MainCond;
 
 //pinmap
 //left
-#define LC  0// 5
-#define AIN1 1//6
-#define AIN2 4//13
-#define PWML 17//19
+#define LC   5
+#define AIN1 6
+#define AIN2 13
+#define PWML 19
 
 //right
-#define RC   11//26
-#define BIN1 14//16
-#define BIN2 15//20
-#define PWMR 18//21
+#define RC   26
+#define BIN1 16
+#define BIN2 20
+#define PWMR 21
 
 #define TURN_90_COUNT 100
 #define TURN_180_COUNT 200
@@ -238,4 +238,21 @@ void turnRight(){
 void turnBack(){
     init(TURN_180_COUNT,-TURN_180_COUNT);
 }
-
+void test(){
+    gpioSetMode(BIN1, PI_OUTPUT);
+    gpioSetMode(BIN2, PI_OUTPUT);
+    gpioSetMode(PWMR, PI_OUTPUT);
+    gpioWrite(BIN1,1);
+    gpioWrite(BIN2,0);
+    gpioPWM(PWMR,255);
+    gpioSetMode(AIN1, PI_OUTPUT);
+    gpioSetMode(AIN2, PI_OUTPUT);
+    gpioSetMode(PWML, PI_OUTPUT);
+    gpioWrite(AIN1,1);
+    gpioWrite(AIN2,0);
+    gpioPWM(PWML,0);
+}
+void stop(){
+    gpioPWM(PWML,0);
+    gpioPWM(PWMR,0);
+}

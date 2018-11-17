@@ -13,14 +13,17 @@ int main(int argc, char *argv[])
     }
     //do work on pigpio pthAlertThread main thread just wait
     //Todo use config file to describe movement
-    printf("before move\n");
+/*    printf("before move\n");
     int ret = moveStraight(5);
     printf("move straight over\n");
     if(ret == 0){
         pthread_mutex_lock( &MainMutex );
         pthread_cond_wait( &MainCond, &MainMutex);
         pthread_mutex_unlock( &MainMutex);
-    }
+    }*/
+    test();
+    time_sleep(2);
+    stop();
     printf("just log main thread was notified,bye\n");
 
     gpioTerminate();

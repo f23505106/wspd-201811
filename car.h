@@ -2,3 +2,5 @@
 //forward or backward 
 //parameter distance is counter number
 int moveStraight(int64_t distance);
+void test();
+void stop();
